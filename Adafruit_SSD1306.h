@@ -16,18 +16,6 @@ BSD license, check license.txt for more information
 All text above, and the splash screen must be included in any redistribution
 *********************************************************************/
 
-#if ARDUINO >= 100
- #include "Arduino.h"
-#else
- #include "WProgram.h"
-#endif
-
-#include <Adafruit_GFX.h>
-
-#define BLACK 0
-#define WHITE 1
-
-#define SSD1306_I2C_ADDRESS   0x3D	// 011110+SA0+RW
 
 /*=========================================================================
     SSD1306 Displays
@@ -37,15 +25,26 @@ All text above, and the splash screen must be included in any redistribution
     sized framebuffer, etc.
 
     SSD1306_128_64  128x64 pixel display
-
     SSD1306_128_32  128x32 pixel display
 
     You also need to set the LCDWIDTH and LCDHEIGHT defines to an 
     appropriate size
-
     -----------------------------------------------------------------------*/
    #define SSD1306_128_64
 //   #define SSD1306_128_32
+/*=========================================================================
+	Interface
+    -----------------------------------------------------------------------
+	The default is software SPI, if you leave the following two defines
+	commented out then you can access the display with software SPI as
+	per normal. (Note: TWI is only available on the 128x64 board at this time.)
+	To use hardware SPI (faster but less choice of pins) uncomment the
+	hardware SPI define.
+	To use I2C (only uses 3 pins) uncomment that define.
+	Don't uncomment both, just one, or the other, or the default is neither.
+    -----------------------------------------------------------------------*/
+//#define	HARDWARE_SPI
+//#define	USE_TWI
 /*=========================================================================*/
 
 #if defined SSD1306_128_64 && defined SSD1306_128_32
@@ -53,6 +52,27 @@ All text above, and the splash screen must be included in any redistribution
 #endif
 #if !defined SSD1306_128_64 && !defined SSD1306_128_32
   #error "At least one SSD1306 display must be specified in SSD1306.h"
+#endif
+#if defined USE_TWI && defined HARDWARE_SPI
+  #error "You can't use TWI and hardware SPI at the same time, only one should be uncommented, or leave both commented for software SPI in SSD1306.h"
+#endif
+#if defined USE_TWI && defined SSD1306_128_32
+  #error "At this time, I2C / TWI is not compatible with the 128x32 OLED (in SSD1306.h)"
+#endif
+
+
+#include "Arduino.h"
+#include <Adafruit_GFX.h>
+
+#ifdef HARDWARE_SPI
+#include <SPI.h>
+#endif
+
+#define BLACK 0
+#define WHITE 1
+#ifdef USE_TWI
+#include <Wire.h>
+#define SSD1306_I2C_ADDRESS   0x3D	// 011110+SA0+RW
 #endif
 
 #if defined SSD1306_128_64
@@ -101,13 +121,16 @@ All text above, and the splash screen must be included in any redistribution
 
 class Adafruit_SSD1306 : public Adafruit_GFX {
  public:
+#if defined(USE_TWI)
+  Adafruit_SSD1306(int8_t RST) :sid(-1), sclk(-1), dc(-1), rst(RST), cs(-1) {}
+#elif defined(HARDWARE_SPI)
+  Adafruit_SSD1306(int8_t DC, int8_t RST, int8_t CS) :sid(-1), sclk(-1), dc(DC), rst(RST), cs(CS) {}
+#else
   Adafruit_SSD1306(int8_t SID, int8_t SCLK, int8_t DC, int8_t RST, int8_t CS) :sid(SID), sclk(SCLK), dc(DC), rst(RST), cs(CS) {}
   Adafruit_SSD1306(int8_t SID, int8_t SCLK, int8_t DC, int8_t RST) :sid(SID), sclk(SCLK), dc(DC), rst(RST), cs(-1) {}
-  Adafruit_SSD1306(int8_t RST) :sid(-1), sclk(-1), dc(-1), rst(RST), cs(-1) {}
-
+#endif
   void begin(uint8_t switchvcc = SSD1306_SWITCHCAPVCC);
   void ssd1306_command(uint8_t c);
-  void ssd1306_data(uint8_t c);
 
   void clearDisplay(void);
   void invertDisplay(uint8_t i);
@@ -117,9 +140,9 @@ class Adafruit_SSD1306 : public Adafruit_GFX {
 
  private:
   int8_t sid, sclk, dc, rst, cs;
+#if !defined USE_TWI && !defined HARDWARE_SPI
   void fastSPIwrite(uint8_t c);
-  void slowSPIwrite(uint8_t c);
-
+#endif
   volatile uint8_t *mosiport, *clkport, *csport, *dcport;
   uint8_t mosipinmask, clkpinmask, cspinmask, dcpinmask;
 };

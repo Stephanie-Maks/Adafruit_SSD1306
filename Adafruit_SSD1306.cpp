@@ -20,8 +20,6 @@ All text above, and the splash screen below must be included in any redistributi
 #include <util/delay.h>
 #include <stdlib.h>
 
-#include <Wire.h>
-
 #include "Adafruit_GFX.h"
 #include "Adafruit_SSD1306.h"
 
@@ -31,7 +29,6 @@ All text above, and the splash screen below must be included in any redistributi
 extern uint8_t PROGMEM font[];
 
 // the memory buffer for the LCD
-
 static uint8_t buffer[SSD1306_LCDHEIGHT * SSD1306_LCDWIDTH / 8] = { 
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -101,8 +98,6 @@ static uint8_t buffer[SSD1306_LCDHEIGHT * SSD1306_LCDWIDTH / 8] = {
 #endif
 };
 
-
-
 // the most basic function, set a single pixel
 void Adafruit_SSD1306::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if ((x < 0) || (x >= width()) || (y < 0) || (y >= height()))
@@ -140,28 +135,30 @@ void Adafruit_SSD1306::begin(uint8_t vccstate) {
 #endif
 
   // set pin directions
-  if (sid != -1)
-  {
     // SPI
+#ifdef HARDWARE_SPI
+	SPI.begin();
+	SPI.setBitOrder(MSBFIRST);
+	SPI.setDataMode(SPI_MODE0);
+	SPI.setClockDivider(SPI_CLOCK_DIV2);
+#else
     pinMode(sid, OUTPUT);
     pinMode(sclk, OUTPUT);
-    pinMode(dc, OUTPUT);
-    pinMode(cs, OUTPUT);
     clkport     = portOutputRegister(digitalPinToPort(sclk));
     clkpinmask  = digitalPinToBitMask(sclk);
     mosiport    = portOutputRegister(digitalPinToPort(sid));
     mosipinmask = digitalPinToBitMask(sid);
+#endif
+#ifdef USE_TWI
+	Wire.begin();
+#else
+    pinMode(dc, OUTPUT);
+    pinMode(cs, OUTPUT);
     csport      = portOutputRegister(digitalPinToPort(cs));
     cspinmask   = digitalPinToBitMask(cs);
     dcport      = portOutputRegister(digitalPinToPort(dc));
     dcpinmask   = digitalPinToBitMask(dc);
-  }
-  else
-  {
-    // I2C Init
-	Wire.begin(); // Is this the right place for this?
-  }
-
+#endif
   // Setup reset pin direction (used by both SPI and I2C)  
   pinMode(rst, OUTPUT);
   digitalWrite(rst, HIGH);
@@ -259,53 +256,23 @@ void Adafruit_SSD1306::invertDisplay(uint8_t i) {
 }
 
 void Adafruit_SSD1306::ssd1306_command(uint8_t c) { 
-  if (sid != -1)
-  {
-    // SPI
-    //digitalWrite(cs, HIGH);
-    *csport |= cspinmask;
-    //digitalWrite(dc, LOW);
-    *dcport &= ~dcpinmask;
-    //digitalWrite(cs, LOW);
-    *csport &= ~cspinmask;
-    fastSPIwrite(c);
-    //digitalWrite(cs, HIGH);
-    *csport |= cspinmask;
-  }
-  else
-  {
-    // I2C
+#ifdef USE_TWI
     uint8_t control = 0x00;   // Co = 0, D/C = 0
     Wire.beginTransmission(SSD1306_I2C_ADDRESS);
     Wire.write(control);
     Wire.write(c);
     Wire.endTransmission();
-  }
-}
-
-void Adafruit_SSD1306::ssd1306_data(uint8_t c) {
-  if (sid != -1)
-  {
-    // SPI
-    //digitalWrite(cs, HIGH);
+#else
     *csport |= cspinmask;
-    //digitalWrite(dc, HIGH);
-    *dcport |= dcpinmask;
-    //digitalWrite(cs, LOW);
+    *dcport &= ~dcpinmask;
     *csport &= ~cspinmask;
-    fastSPIwrite(c);
-    //digitalWrite(cs, HIGH);
+#ifdef HARDWARE_SPI
+	SPI.transfer(c);
+#else
+	fastSPIwrite(c);
+#endif
     *csport |= cspinmask;
-  }
-  else
-  {
-    // I2C
-    uint8_t control = 0x40;   // Co = 0, D/C = 1
-    Wire.beginTransmission(SSD1306_I2C_ADDRESS);
-    Wire.write(control);
-    Wire.write(c);
-    Wire.endTransmission();
-  }
+#endif
 }
 
 void Adafruit_SSD1306::display(void) {
@@ -313,34 +280,12 @@ void Adafruit_SSD1306::display(void) {
   ssd1306_command(SSD1306_SETHIGHCOLUMN | 0x0);  // hi col = 0
   ssd1306_command(SSD1306_SETSTARTLINE | 0x0); // line #0
 
-  if (sid != -1)
-  {
-    // SPI
-    *csport |= cspinmask;
-    *dcport |= dcpinmask;
-    *csport &= ~cspinmask;
-
-    for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
-      fastSPIwrite(buffer[i]);
-      //ssd1306_data(buffer[i]);
-    }
-    // i wonder why we have to do this (check datasheet)
-    if (SSD1306_LCDHEIGHT == 32) {
-      for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
-        //ssd1306_data(0);
-        fastSPIwrite(0);
-      }
-    }
-    *csport |= cspinmask;
-  }
-  else
-  {
-    // save I2C bitrate
+#ifdef USE_TWI
     uint8_t twbrbackup = TWBR;
     TWBR = 12; // upgrade to 400KHz!
 
-    Serial.println(TWBR, DEC);
-    Serial.println(TWSR & 0x3, DEC);
+//    Serial.println(TWBR, DEC);
+//    Serial.println(TWSR & 0x3, DEC);
 
     // I2C
     for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
@@ -355,21 +300,44 @@ void Adafruit_SSD1306::display(void) {
       Wire.endTransmission();
     }
     // i wonder why we have to do this (check datasheet)
-    if (SSD1306_LCDHEIGHT == 32) {
+#if (SSD1306_LCDHEIGHT == 32)
       for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
-	// send a bunch of data in one xmission
-	Wire.beginTransmission(SSD1306_I2C_ADDRESS);
-	Wire.write(0x40);
-	for (uint8_t x=0; x<16; x++) {
-	  Wire.write((uint8_t)0x00);
-	  i++;
-	}
-	i--;
-	Wire.endTransmission();
+    	// send a bunch of data in one xmission
+		Wire.beginTransmission(SSD1306_I2C_ADDRESS);
+		Wire.write(0x40);
+		for (uint8_t x=0; x<16; x++) {
+		  Wire.write((uint8_t)0x00);
+		  i++;
+		}
+		i--;
+		Wire.endTransmission();
       }
-    }
+#endif
     TWBR = twbrbackup;
-  }
+#else
+    *csport |= cspinmask;
+    *dcport |= dcpinmask;
+    *csport &= ~cspinmask;
+
+    for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
+#ifdef HARDWARE_SPI
+	SPI.transfer(buffer[i]);
+#else
+	fastSPIwrite(buffer[i]);
+#endif
+    }
+    // i wonder why we have to do this (check datasheet)
+#if (SSD1306_LCDHEIGHT == 32)
+      for (uint16_t i=0; i<(SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8); i++) {
+#ifdef HARDWARE_SPI
+	SPI.transfer(0);
+#else
+	fastSPIwrite(0);
+#endif
+      }
+#endif
+    *csport |= cspinmask;
+#endif
 }
 
 // clear everything
@@ -377,27 +345,13 @@ void Adafruit_SSD1306::clearDisplay(void) {
   memset(buffer, 0, (SSD1306_LCDWIDTH*SSD1306_LCDHEIGHT/8));
 }
 
-
+#if !defined USE_TWI && !defined HARDWARE_SPI
 inline void Adafruit_SSD1306::fastSPIwrite(uint8_t d) {
-  
   for(uint8_t bit = 0x80; bit; bit >>= 1) {
     *clkport &= ~clkpinmask;
     if(d & bit) *mosiport |=  mosipinmask;
     else        *mosiport &= ~mosipinmask;
     *clkport |=  clkpinmask;
   }
-  //*csport |= cspinmask;
 }
-
-inline void Adafruit_SSD1306::slowSPIwrite(uint8_t d) {
- for (int8_t i=7; i>=0; i--) {
-   digitalWrite(sclk, LOW);
-   if (d & _BV(i)) {
-     digitalWrite(sid, HIGH);
-   } else {
-     digitalWrite(sid, LOW);
-   }
-   digitalWrite(sclk, HIGH);
- }
-}
-
+#endif

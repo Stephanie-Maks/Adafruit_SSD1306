@@ -1,3 +1,16 @@
+Forked from https://github.com/adafruit/Adafruit_SSD1306
+
+Added Hardware SPI option & optomised code a little to reduce sketch flash usage.
+
+Just comment / uncomment a #define in the header file to configure.
+
+See the comments in Adafruit_SSD1306.h for instructions.
+
+
+==================================================================================
+
+
+
 This is a library for our Monochrome OLEDs based on SSD1306 drivers
 
   Pick one up today in the adafruit shop!
